@@ -1,98 +1,108 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
-#include "DHT.h"
+#include <DHT.h>
 
-// Define DHT settings
-#define DHTPIN 2
-#define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
-// Define OLED settings
+// --- CONFIGURATION SECTION (Change things here easily) ---
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-#define OLED_RESET -1  // Reset pin (or -1 if sharing Arduino reset pin)
-#define OLED_ADDR 0x3C // I2C address for the OLED
+#define OLED_RESET    -1
+#define I2C_ADDRESS   0x3C
+
+// SENSOR SETTINGS
+#define SENSOR_PIN    2      // Digital pin connected to the DHT sensor
+#define SENSOR_TYPE   DHT11  // Change to DHT22 or DHT21 if needed
+#define UPDATE_DELAY  2000   // Time between readings (ms)
+
+// ALERT THRESHOLDS
+const float TEMP_HIGH_THRESHOLD = 35.0; // Celsius
+const int ledPin = 13; 
+
+// Objects
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+DHT dht(SENSOR_PIN, SENSOR_TYPE);
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("DHTxx and OLED test!");
-
-  // Initialize DHT sensor
+  pinMode(ledPin, OUTPUT);
+  
   dht.begin();
 
-  // Initialize OLED screen
-  if (!display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR)) {
-    Serial.println("OLED initialization failed!");
-    while (true); // Loop forever if OLED initialization fails
+  if(!display.begin(SSD1306_SWITCHCAPVCC, I2C_ADDRESS)) {
+    Serial.println(F("SSD1306 allocation failed"));
+    for(;;);
   }
-
-  // Clear the display
+  
   display.clearDisplay();
+  display.setTextColor(WHITE);
   display.setTextSize(1);
-  display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0, 0);
-  display.println("Initializing...");
+  display.setCursor(20, 20);
+  display.println("System Initializing...");
   display.display();
-  delay(2000);
+  delay(1000);
 }
 
 void loop() {
-  // Wait between measurements
-  delay(2000);
-
-  // Read humidity and temperature
+  // 1. Read Data
   float h = dht.readHumidity();
   float t = dht.readTemperature();
-  float f = dht.readTemperature(true);
 
-  // Check for sensor errors
-  if (isnan(h) || isnan(t) || isnan(f)) {
-    Serial.println("Failed to read from DHT sensor!");
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("Sensor Error!");
-    display.display();
+  // Check if any reads failed
+  if (isnan(h) || isnan(t)) {
+    showError();
     return;
   }
 
-  // Compute heat index
-  float hif = dht.computeHeatIndex(f, h);
-  float hic = dht.computeHeatIndex(t, h, false);
+  // 2. Alert Logic (LED turns on if too hot)
+  if(t > TEMP_HIGH_THRESHOLD) {
+    digitalWrite(ledPin, HIGH);
+  } else {
+    digitalWrite(ledPin, LOW);
+  }
 
-  // Print data to Serial Monitor
-  Serial.print("Humidity: ");
-  Serial.print(h);
-  Serial.print(" %\t");
-  Serial.print("Temperature: ");
-  Serial.print(t);
-  Serial.print(" *C ");
-  Serial.print(f);
-  Serial.print(" *F\t");
-  Serial.print("Heat index: ");
-  Serial.print(hic);
-  Serial.print(" *C ");
-  Serial.println(hif);
+  // 3. Update Display
+  updateOLED(t, h);
+  
+  // 4. Serial Debugging
+  Serial.print("Humidity: "); Serial.print(h);
+  Serial.print("%  Temperature: "); Serial.print(t); Serial.println("C");
 
-  // Display data on OLED screen
+  delay(UPDATE_DELAY);
+}
+
+// --- MODULAR FUNCTIONS ---
+
+void updateOLED(float temp, float hum) {
   display.clearDisplay();
+  
+  // Header
+  display.setTextSize(1);
   display.setCursor(0, 0);
-  display.print("Humidity: ");
-  display.print(h);
-  display.println(" %");
+  display.println("ENV MONITOR v1.0");
+  display.drawFastHLine(0, 10, 128, WHITE);
 
-  display.print("Temp: ");
-  display.print(t);
-  display.print(" *C / ");
-  display.print(f);
-  display.println(" *F");
+  // Temperature
+  display.setTextSize(2);
+  display.setCursor(0, 20);
+  display.print("T: "); 
+  display.print(temp, 1);
+  display.print((char)247); // Degree symbol
+  display.print("C");
 
-  display.print("Heat Index: ");
-  display.print(hic);
-  display.print(" *C / ");
-  display.print(hif);
-  display.println(" *F");
+  // Humidity
+  display.setCursor(0, 45);
+  display.print("H: ");
+  display.print(hum, 1);
+  display.print("%");
 
+  display.display();
+}
+
+void showError() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 20);
+  display.println("Sensor Error!");
+  display.println("Check Wiring...");
   display.display();
 }
